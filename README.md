@@ -31,7 +31,16 @@ This will build a zip that can be uploaded to S3.  From the project root:
 ```bash
 pip install -r <(pipenv lock -r) -t dist/
 cp -a src/*.py dist/
-cd dist && zip -r bundle.zip .
+echo "Remove *-info"
+find dist/ -name "*-info" -type d -exec rm -rdf {} +
+echo "Removing tests"
+find dist/ -name "tests" -type d -exec rm -rdf {} +
+echo "Removing the default libraries which are already bundled by Amazon"
+for lib in boto3 botocore docutils dateutil jmespath s3transfer numpy/doc urllib3; do \
+    [[ -d "dist/${lib}" ]] && echo "dropping ${lib}" && rm -rdf dist/${lib}; \
+done
+echo "Packing"
+cd dist && zip -r9 bundle.zip .
 aws s3 cp bundle.zip s3://<your-bucket>/bundle.zip
 ```
 
