@@ -72,6 +72,7 @@ class AutoScalingGroup(object):
 class Instance(object):
     def __init__(self, id):
         self._instance = ec2.Instance(id)
+        self._id = id
 
     def __getattr__(self, item):
         try:
@@ -92,9 +93,51 @@ class Instance(object):
 
     @property
     def cluster_name(self):
-        match = re.search('^(.*) ECS host$', self.name or '')
-        if match:
-            return match.group(1)
+        #match = re.search('^(.*) ECS host$', self.name or '')
+        #if match:
+        #    return match.group(1)
+        ecs_clusters_arns = []
+
+        # Getting all available ECS clusters in the current environment
+        # We can limit what we see by setting up the certain resources for
+        # ecs:ListClusters IAM action
+        ecs_clusters_pager = ecs.get_paginator('list_clusters')
+        for list_resp in ecs_clusters_pager.paginate():
+            ecs_clusters_arns.extend(list_resp['clusterArns'])
+
+        logger.debug('Found the next Clusters:')
+        logger.debug(str(ecs_clusters_arns))
+
+        # Try to find where is the instance: grep over the clusters we found before
+        for ECS_CLUSTER in ecs_clusters_arns:
+            logger.info(f'Seeking in {ECS_CLUSTER}')
+
+            inst_paginator = ecs.get_paginator('list_container_instances')
+            for list_resp in inst_paginator.paginate(cluster=ECS_CLUSTER):
+                arns = list_resp['containerInstanceArns']
+
+                if len(arns) == 0:
+                    logger.debug('An empty cluster - SKIPPED')
+                    logger.debug(arns)
+                    continue
+
+                desc_resp = ecs.describe_container_instances(cluster=ECS_CLUSTER,
+                                                             containerInstances=arns)
+
+                for container_instance in desc_resp['containerInstances']:
+                    if container_instance['ec2InstanceId'] != self._id:
+                        continue
+
+                    logger.info(f'Found instance: id={self._id}, arn={container_instance["containerInstanceArn"]}, '
+                                f'status={container_instance["status"]}, '
+                                f'runningTasksCount={container_instance["runningTasksCount"]}')
+
+                    # We can return either ARN or the name. Boto eats any :)
+                    return ECS_CLUSTER
+
+        # Return nothing
+        logger.info('No ECS cluster had been found so far')
+        return None
 
     @property
     def is_ecs_cluster_node(self):
@@ -264,7 +307,7 @@ def run(sns_message, sns_topic):
         # node is already draining
         logger.info(e)
 
-    # stop daemon takss after all other tasks have been stopped
+    # stop daemon tasks after all other tasks have been stopped
     if cluster.only_daemon_tasks_remaining(node):
         cluster.stop_daemon_tasks(node)
 
