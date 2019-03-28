@@ -66,7 +66,7 @@ class AutoScalingGroup(object):
             LifecycleHookName=hook_name,
             AutoScalingGroupName=self.name
         )
-        logger.debug('Colplete lifecycle action resp: %s', resp)
+        logger.debug('Complete lifecycle action resp: %s', resp)
 
 
 class Instance(object):
